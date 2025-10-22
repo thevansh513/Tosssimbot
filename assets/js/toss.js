@@ -51,6 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
         isFlipping = true;
         tossButton.disabled = true;
         resultText.textContent = 'Flipping...';
+        coin.parentElement.classList.remove('win-glow'); // Remove previous glow
         coin.className = ''; // Reset classes
         window.tossSim.playSound('flip');
 
@@ -77,6 +78,8 @@ document.addEventListener('DOMContentLoaded', () => {
             resultText.textContent = `It's ${result}! You won ${winnings} coins!`;
             window.showToast(`You won ${winnings} coins!`, 'success');
             window.tossSim.playSound('win');
+            coin.parentElement.classList.add('win-glow');
+            showCoinShower();
         } else {
             window.tossSim.subtractCoins(bet);
             resultText.textContent = `It's ${result}. You lost ${bet} coins.`;
@@ -84,10 +87,38 @@ document.addEventListener('DOMContentLoaded', () => {
             window.tossSim.playSound('lose');
         }
 
+        // Animate result text
+        resultText.classList.add('pop');
+        resultText.addEventListener('animationend', () => {
+            resultText.classList.remove('pop');
+        }, { once: true });
+
         // Reset state
         isFlipping = false;
         userChoice = null;
         choiceButtons.forEach(btn => btn.classList.remove('active'));
         validateInputs();
+    }
+
+    function showCoinShower() {
+        const container = document.querySelector('.page-container');
+        if (!container) return;
+    
+        for (let i = 0; i < 20; i++) { // Create 20 coins
+            const coinEl = document.createElement('div');
+            coinEl.className = 'falling-coin';
+            
+            // Randomize horizontal position, delay, and duration for a natural look
+            coinEl.style.left = `${Math.random() * 100}%`;
+            coinEl.style.animationDelay = `${Math.random() * 1}s`;
+            coinEl.style.animationDuration = `${1.5 + Math.random()}s`;
+    
+            container.appendChild(coinEl);
+    
+            // Remove the coin from the DOM after it has fallen
+            setTimeout(() => {
+                coinEl.remove();
+            }, 3000);
+        }
     }
 });
