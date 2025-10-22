@@ -1,3 +1,4 @@
+
 :root {
     --bg-color: #0a0f23;
     --surface-color: #151a3a;
@@ -78,11 +79,11 @@ header .container {
 .header-controls {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: 0.5rem;
 }
 
 .balance {
-    font-size: 1.1rem;
+    font-size: 1rem;
     font-weight: 600;
     color: var(--secondary-color);
     background-color: rgba(255, 201, 71, 0.1);
@@ -91,6 +92,10 @@ header .container {
     display: flex;
     align-items: center;
     gap: 0.3rem;
+}
+.cash-balance {
+    color: var(--success-color);
+    background-color: rgba(80, 250, 123, 0.1);
 }
 
 .sound-toggle {
@@ -534,13 +539,28 @@ main {
 .leaderboard-list li:nth-child(3)::before { content: "3 🥉"; color: #CD7F32; }
 
 
-/* Wallet Page */
-.wallet-container h2 {
+/* Earnings Page */
+.earnings-container h2 {
     margin-bottom: 0;
 }
-.wallet-balance-card {
-    border: 2px solid var(--primary-color);
+.earnings-container .card h3 {
+    margin-bottom: 1rem;
 }
+.earnings-container .card p {
+    color: var(--text-color-muted);
+    margin-bottom: 1rem;
+}
+.cash-amount {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--success-color);
+}
+.conversion-rate {
+    font-size: 0.9rem;
+    font-weight: bold;
+    color: var(--primary-color) !important;
+}
+
 .wallet-amount {
     font-size: 2.5rem;
     font-weight: 700;
@@ -557,20 +577,57 @@ main {
 }
 .interest-info p {
     font-size: 1.1rem;
+    margin-bottom: 0 !important;
 }
 .stake-unstake-forms {
     display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
+    gap: 1rem;
     width: 100%;
+    margin-top: 1rem;
 }
-.stake-unstake-forms .card h3 {
-    margin-bottom: 1rem;
+.stake-unstake-forms form {
+    flex: 1;
 }
-.stake-unstake-forms .card p {
+
+/* Transaction History */
+.transaction-history ul {
+    list-style: none;
+    padding: 0;
+    max-height: 300px;
+    overflow-y: auto;
+}
+.transaction-history li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 0;
+    text-align: left;
+}
+.transaction-history li:not(:last-child) {
+    border-bottom: 1px solid #2a3052;
+}
+.tx-info, .tx-amount {
+    display: flex;
+    flex-direction: column;
+}
+.tx-info strong {
+    color: var(--text-color);
+}
+.tx-info span {
+    font-size: 0.8rem;
     color: var(--text-color-muted);
-    margin-bottom: 1rem;
 }
+.tx-amount {
+    text-align: right;
+}
+.tx-amount strong {
+    color: var(--danger-color);
+}
+.tx-amount span {
+    font-size: 0.8rem;
+    color: var(--secondary-color);
+}
+
 
 /* Referrals Page */
 .referral-code-box {
@@ -642,9 +699,6 @@ main {
         width: auto;
     }
     .button-group {
-        flex-direction: row;
-    }
-     .stake-unstake-forms {
         flex-direction: row;
     }
 }

@@ -12,9 +12,19 @@ interface ToastMessage {
     type: 'success' | 'error';
 }
 
+interface Transaction {
+    id: number;
+    amount: number;
+    details: string;
+    date: string;
+    status: 'Pending';
+}
+
 interface AppContextType {
     coins: number;
     stakedCoins: number;
+    cash: number;
+    transactions: Transaction[];
     addCoins: (amount: number) => void;
     subtractCoins: (amount: number) => void;
     stakeCoins: (amount: number) => void;
@@ -23,6 +33,8 @@ interface AppContextType {
     lastInterestClaim: string | null;
     claimHourlyBonus: () => { success: boolean; message: string; };
     lastHourlyClaim: number | null;
+    redeemCoins: (coinAmount: number) => { success: boolean; message: string; };
+    withdrawCash: (cashAmount: number, details: string) => { success: boolean; message: string; };
     isMuted: boolean;
     toggleMute: () => void;
     playSound: (name: SoundName) => void;
@@ -69,6 +81,7 @@ const soundFiles: Record<SoundName, string> = {
 
 // --- CONTEXT & PROVIDER ---
 const AppContext = createContext<AppContextType | null>(null);
+const CONVERSION_RATE = 10000; // 10,000 coins = ₹1
 
 const useAppContext = () => {
     const context = useContext(AppContext);
@@ -79,6 +92,8 @@ const useAppContext = () => {
 const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [coins, setCoins] = useState<number>(() => parseInt(localStorage.getItem('tosssim_coins') || '1000', 10));
     const [stakedCoins, setStakedCoins] = useState<number>(() => parseInt(localStorage.getItem('tosssim_staked') || '0', 10));
+    const [cash, setCash] = useState<number>(() => parseFloat(localStorage.getItem('tosssim_cash') || '0'));
+    const [transactions, setTransactions] = useState<Transaction[]>(() => JSON.parse(localStorage.getItem('tosssim_transactions') || '[]'));
     const [lastInterestClaim, setLastInterestClaim] = useState<string | null>(() => localStorage.getItem('tosssim_last_claim'));
     const [lastHourlyClaim, setLastHourlyClaim] = useState<number | null>(() => {
         const storedTime = localStorage.getItem('tosssim_last_hourly_claim');
@@ -97,6 +112,8 @@ const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     
     useEffect(() => { localStorage.setItem('tosssim_coins', coins.toString()); }, [coins]);
     useEffect(() => { localStorage.setItem('tosssim_staked', stakedCoins.toString()); }, [stakedCoins]);
+    useEffect(() => { localStorage.setItem('tosssim_cash', cash.toString()); }, [cash]);
+    useEffect(() => { localStorage.setItem('tosssim_transactions', JSON.stringify(transactions)); }, [transactions]);
     useEffect(() => { lastInterestClaim ? localStorage.setItem('tosssim_last_claim', lastInterestClaim) : localStorage.removeItem('tosssim_last_claim'); }, [lastInterestClaim]);
     useEffect(() => { lastHourlyClaim ? localStorage.setItem('tosssim_last_hourly_claim', lastHourlyClaim.toString()) : localStorage.removeItem('tosssim_last_hourly_claim'); }, [lastHourlyClaim]);
     useEffect(() => { localStorage.setItem('tosssim_muted', isMuted.toString()); }, [isMuted]);
@@ -145,6 +162,35 @@ const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         return { success: true, message: 'You claimed 1,000 coins!' };
     };
 
+    const redeemCoins = (coinAmount: number) => {
+        if (coinAmount <= 0 || coinAmount > coins) {
+            return { success: false, message: 'Invalid amount of coins.' };
+        }
+        if (coinAmount < CONVERSION_RATE) {
+            return { success: false, message: `You need at least ${CONVERSION_RATE.toLocaleString()} coins to redeem.` };
+        }
+        const cashToAdd = coinAmount / CONVERSION_RATE;
+        subtractCoins(coinAmount);
+        setCash(c => c + cashToAdd);
+        return { success: true, message: `Redeemed ${coinAmount.toLocaleString()} coins for ₹${cashToAdd.toFixed(2)}!` };
+    };
+
+    const withdrawCash = (cashAmount: number, details: string) => {
+        if (cashAmount <= 0 || cashAmount > cash) {
+            return { success: false, message: 'Invalid withdrawal amount.' };
+        }
+        setCash(c => c - cashAmount);
+        const newTransaction: Transaction = {
+            id: Date.now(),
+            amount: cashAmount,
+            details,
+            date: new Date().toLocaleString(),
+            status: 'Pending',
+        };
+        setTransactions(prev => [newTransaction, ...prev]);
+        return { success: true, message: 'Withdrawal request submitted!' };
+    };
+
     const playSound = (name: SoundName) => {
         if (!isMuted && sounds.current[name]) {
             sounds.current[name].currentTime = 0;
@@ -160,7 +206,7 @@ const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         }, 3500);
     };
 
-    const value = { coins, stakedCoins, addCoins, subtractCoins, isMuted, toggleMute, playSound, showToast, stakeCoins, unstakeCoins, claimInterest, lastInterestClaim, claimHourlyBonus, lastHourlyClaim };
+    const value = { coins, stakedCoins, cash, transactions, addCoins, subtractCoins, isMuted, toggleMute, playSound, showToast, stakeCoins, unstakeCoins, claimInterest, lastInterestClaim, claimHourlyBonus, lastHourlyClaim, redeemCoins, withdrawCash };
 
     return (
         <AppContext.Provider value={value}>
@@ -207,7 +253,7 @@ const ToastContainer: React.FC<{ toasts: ToastMessage[] }> = ({ toasts }) => {
 };
 
 const Header = () => {
-    const { coins, isMuted, toggleMute, playSound } = useAppContext();
+    const { coins, cash, isMuted, toggleMute, playSound } = useAppContext();
     const handleToggle = () => {
         toggleMute();
         playSound('click');
@@ -220,6 +266,10 @@ const Header = () => {
                      <h1 className="logo">TossSim</h1>
                 </div>
                 <div className="header-controls">
+                     <div className="balance cash-balance">
+                        <span role="img" aria-label="money bag emoji">💵</span>
+                        <span>₹{cash.toFixed(2)}</span>
+                    </div>
                     <div className="balance">
                         <span role="img" aria-label="coin emoji">💰</span>
                         <span className="coin-balance">{coins.toLocaleString()}</span>
@@ -247,8 +297,8 @@ const BottomNav = () => {
             <NavLink to="/game/spin" className="nav-item" onClick={click}>
                  {({isActive}) => (<><SpinIcon isActive={isActive} /><span>Spin</span></>)}
             </NavLink>
-             <NavLink to="/wallet" className="nav-item" onClick={click}>
-                 {({isActive}) => (<><WalletIcon isActive={isActive} /><span>Wallet</span></>)}
+             <NavLink to="/earnings" className="nav-item" onClick={click}>
+                 {({isActive}) => (<><WalletIcon isActive={isActive} /><span>Earnings</span></>)}
             </NavLink>
             <NavLink to="/referrals" className="nav-item" onClick={click}>
                  {({isActive}) => (<><ReferIcon isActive={isActive} /><span>Referrals</span></>)}
@@ -329,8 +379,8 @@ const Home = () => {
     return (
         <div className="container hero">
             <AdBanner />
-            <h2>Welcome to TossSim!</h2>
-            <p>The ultimate virtual coin game. Are you feeling lucky?</p>
+            <h2>Welcome to TossSim Earn!</h2>
+            <p>The ultimate virtual coin game where you can earn real rewards.</p>
             <img src="/assets/images/treasure.png" alt="Treasure chest full of coins" className="hero-image"/>
             <div className="button-group">
                 <NavLink to="/game/toss" className="btn btn-primary" onClick={() => playSound('click')}>
@@ -405,7 +455,7 @@ const Referrals = () => {
     const handleShare = async () => {
         playSound('click');
         const downloadPageUrl = `${window.location.origin}/download.html`;
-        const shareText = `I'm earning coins on TossSim! Use my code ${referralCode} to get a bonus when you sign up!`;
+        const shareText = `I'm earning on TossSim! Use my code ${referralCode} to get a bonus when you sign up!`;
 
         const shareData = {
             title: 'Join me on TossSim!',
@@ -435,8 +485,8 @@ const Referrals = () => {
         <div className="container page-container">
             <AdBanner />
             <div className="card">
-                <h2>Invite Friends, Earn Coins! 💸</h2>
-                <p>Share your code. You and your friend will both get <strong>2,500 coins</strong> when they join!</p>
+                <h2>Invite Friends, Earn Real Rewards! 💸</h2>
+                <p>Share your code. You and your friend will both get <strong>2,500 coins</strong> which can be redeemed for cash!</p>
                 <div className="referral-code-box">
                     <span>Your Code:</span>
                     <strong className="referral-code">{referralCode}</strong>
@@ -452,29 +502,32 @@ const Referrals = () => {
                  <ul className="how-it-works-list">
                     <li>1. Share your unique referral link or code.</li>
                     <li>2. Your friend downloads the app and enters your code.</li>
-                    <li>3. You both instantly receive 2,500 bonus coins!</li>
+                    <li>3. You both instantly receive 2,500 bonus coins, redeemable for cash!</li>
                  </ul>
             </div>
         </div>
     );
 };
 
-const Wallet = () => {
-    const { coins, stakedCoins, stakeCoins, unstakeCoins, claimInterest, showToast, playSound, lastInterestClaim } = useAppContext();
+const Earnings = () => {
+    const { 
+        coins, stakedCoins, cash, transactions, 
+        stakeCoins, unstakeCoins, claimInterest, lastInterestClaim, 
+        redeemCoins, withdrawCash,
+        showToast, playSound 
+    } = useAppContext();
+    
     const [stakeAmount, setStakeAmount] = useState('');
     const [unstakeAmount, setUnstakeAmount] = useState('');
+    const [redeemAmount, setRedeemAmount] = useState('');
+    const [withdrawAmount, setWithdrawAmount] = useState('');
+    const [withdrawDetails, setWithdrawDetails] = useState('');
 
     const handleStake = (e: React.FormEvent) => {
         e.preventDefault();
         const amount = parseInt(stakeAmount, 10);
-        if (isNaN(amount) || amount <= 0) {
-            showToast('Please enter a valid amount.', 'error');
-            return;
-        }
-        if (amount > coins) {
-            showToast('Not enough coins to stake.', 'error');
-            return;
-        }
+        if (isNaN(amount) || amount <= 0) { showToast('Please enter a valid amount.', 'error'); return; }
+        if (amount > coins) { showToast('Not enough coins to stake.', 'error'); return; }
         stakeCoins(amount);
         showToast(`${amount.toLocaleString()} coins staked!`, 'success');
         playSound('win');
@@ -484,81 +537,132 @@ const Wallet = () => {
     const handleUnstake = (e: React.FormEvent) => {
         e.preventDefault();
         const amount = parseInt(unstakeAmount, 10);
-        if (isNaN(amount) || amount <= 0) {
-            showToast('Please enter a valid amount.', 'error');
-            return;
-        }
-        if (amount > stakedCoins) {
-            showToast('Not enough staked coins.', 'error');
-            return;
-        }
+        if (isNaN(amount) || amount <= 0) { showToast('Please enter a valid amount.', 'error'); return; }
+        if (amount > stakedCoins) { showToast('Not enough staked coins.', 'error'); return; }
         unstakeCoins(amount);
         showToast(`${amount.toLocaleString()} coins withdrawn.`, 'success');
         playSound('click');
         setUnstakeAmount('');
     };
 
-    const handleClaim = () => {
+    const handleClaimInterest = () => {
         const result = claimInterest();
+        showToast(result.message, result.success ? 'success' : 'error');
+        if(result.success) playSound('win');
+    };
+
+    const handleRedeem = (e: React.FormEvent) => {
+        e.preventDefault();
+        const amount = parseInt(redeemAmount, 10);
+        if (isNaN(amount) || amount <= 0) { showToast('Please enter a valid coin amount.', 'error'); return; }
+        const result = redeemCoins(amount);
+        showToast(result.message, result.success ? 'success' : 'error');
         if (result.success) {
-            showToast(result.message, 'success');
             playSound('win');
-        } else {
-            showToast(result.message, 'error');
+            setRedeemAmount('');
+        }
+    };
+
+    const handleWithdraw = (e: React.FormEvent) => {
+        e.preventDefault();
+        const amount = parseFloat(withdrawAmount);
+        if (isNaN(amount) || amount <= 0) { showToast('Please enter a valid amount.', 'error'); return; }
+        if (!withdrawDetails.trim()) { showToast('Please enter your payment details.', 'error'); return; }
+        const result = withdrawCash(amount, withdrawDetails);
+        showToast(result.message, result.success ? 'success' : 'error');
+        if (result.success) {
+            playSound('win');
+            setWithdrawAmount('');
+            setWithdrawDetails('');
         }
     };
     
     const today = new Date().toISOString().split('T')[0];
-    const canClaim = lastInterestClaim !== today;
+    const canClaimInterest = lastInterestClaim !== today;
+    const redeemCashValue = (parseInt(redeemAmount) || 0) / CONVERSION_RATE;
 
     return (
-        <div className="container page-container wallet-container">
+        <div className="container page-container earnings-container">
             <AdBanner />
-            <h2>My Wallet</h2>
-            <div className="card wallet-balance-card">
-                <h3>Staked Balance</h3>
+            <h2>Earnings & Wallet</h2>
+
+            <div className="card">
+                <h3>Cash Balance</h3>
+                <p className="cash-amount">₹{cash.toFixed(2)}</p>
+                <form onSubmit={handleWithdraw}>
+                    <p>Request a withdrawal (min. ₹1.00)</p>
+                    <div className="bet-input">
+                        <input type="number" placeholder="Amount (₹)" value={withdrawAmount} onChange={(e) => setWithdrawAmount(e.target.value)} min="1" step="0.01" required />
+                    </div>
+                    <div className="bet-input">
+                        <input type="text" placeholder="Enter your UPI ID" value={withdrawDetails} onChange={(e) => setWithdrawDetails(e.target.value)} required />
+                    </div>
+                    <button type="submit" className="btn btn-primary">Request Withdrawal</button>
+                </form>
+            </div>
+            
+            <div className="card">
+                <h3>Redeem Coins for Cash</h3>
+                <p className="conversion-rate">Rate: {CONVERSION_RATE.toLocaleString()} Coins = ₹1.00</p>
+                <form onSubmit={handleRedeem}>
+                    <p>Your coins: {coins.toLocaleString()}</p>
+                    <div className="bet-input">
+                        <input type="number" placeholder="Amount of coins" value={redeemAmount} onChange={(e) => setRedeemAmount(e.target.value)} min={CONVERSION_RATE} required />
+                    </div>
+                     <p>You will get: ₹{redeemCashValue.toFixed(2)}</p>
+                    <button type="submit" className="btn btn-secondary">Redeem</button>
+                </form>
+            </div>
+
+            <div className="card">
+                <h3>Staking Vault</h3>
                 <p className="wallet-amount">{stakedCoins.toLocaleString()} 💰</p>
                 <div className="interest-info">
-                    <p>Earn <strong>78%</strong> daily interest!</p>
-                    <button className="btn btn-secondary" onClick={handleClaim} disabled={!canClaim || stakedCoins <= 0}>
-                        {canClaim ? 'Claim Interest' : 'Claimed Today'}
+                    <p>Earn <strong>78%</strong> daily interest on staked coins!</p>
+                    <button className="btn btn-secondary" onClick={handleClaimInterest} disabled={!canClaimInterest || stakedCoins <= 0}>
+                        {canClaimInterest ? 'Claim Interest' : 'Claimed Today'}
                     </button>
+                </div>
+                 <div className="stake-unstake-forms">
+                    <form onSubmit={handleStake}>
+                        <div className="bet-input">
+                             <input type="number" placeholder="Coins to stake" value={stakeAmount} onChange={(e) => setStakeAmount(e.target.value)} min="1"/>
+                        </div>
+                        <button type="submit" className="btn btn-primary">Stake</button>
+                    </form>
+                    <form onSubmit={handleUnstake}>
+                         <div className="bet-input">
+                            <input type="number" placeholder="Coins to withdraw" value={unstakeAmount} onChange={(e) => setUnstakeAmount(e.target.value)} min="1"/>
+                        </div>
+                        <button type="submit" className="btn">Withdraw</button>
+                    </form>
                 </div>
             </div>
 
-            <div className="stake-unstake-forms">
-                <form className="card" onSubmit={handleStake}>
-                    <h3>Stake Coins</h3>
-                    <p>Your balance: {coins.toLocaleString()}</p>
-                    <div className="bet-input">
-                         <input
-                            type="number"
-                            placeholder="Amount to stake"
-                            value={stakeAmount}
-                            onChange={(e) => setStakeAmount(e.target.value)}
-                            min="1"
-                            aria-label="Stake amount"
-                        />
-                    </div>
-                    <button type="submit" className="btn btn-primary">Stake</button>
-                </form>
-
-                <form className="card" onSubmit={handleUnstake}>
-                    <h3>Withdraw Coins</h3>
-                    <p>Staked: {stakedCoins.toLocaleString()}</p>
-                     <div className="bet-input">
-                        <input
-                            type="number"
-                            placeholder="Amount to withdraw"
-                            value={unstakeAmount}
-                            onChange={(e) => setUnstakeAmount(e.target.value)}
-                            min="1"
-                             aria-label="Unstake amount"
-                        />
-                    </div>
-                    <button type="submit" className="btn">Withdraw</button>
-                </form>
+            <div className="card">
+                <h3>Withdrawal History</h3>
+                <div className="transaction-history">
+                    {transactions.length > 0 ? (
+                        <ul>
+                            {transactions.map(tx => (
+                                <li key={tx.id}>
+                                    <div className="tx-info">
+                                        <strong>Withdrawal to {tx.details}</strong>
+                                        <span>{tx.date}</span>
+                                    </div>
+                                    <div className="tx-amount">
+                                        <strong>₹{tx.amount.toFixed(2)}</strong>
+                                        <span>{tx.status}</span>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    ) : (
+                        <p>No withdrawal requests yet.</p>
+                    )}
+                </div>
             </div>
+
         </div>
     );
 };
@@ -587,7 +691,7 @@ const CoinShower = () => {
 
 const TossGame = () => {
     const { coins, addCoins, subtractCoins, playSound, showToast } = useAppContext();
-    const [bet, setBet] = useState('');
+    const [bet, setBet] = = useState('');
     const [choice, setChoice] = useState<'heads' | 'tails' | null>(null);
     const [isFlipping, setIsFlipping] = useState(false);
     const [resultText, setResultText] = useState('Place your bet to start!');
@@ -856,7 +960,7 @@ const App = () => (
                 <Route path="/" element={<Layout />}>
                     <Route index element={<Home />} />
                     <Route path="referrals" element={<Referrals />} />
-                    <Route path="wallet" element={<Wallet />} />
+                    <Route path="earnings" element={<Earnings />} />
                     <Route path="game">
                         <Route path="toss" element={<TossGame />} />
                         <Route path="spin" element={<SpinGame />} />
