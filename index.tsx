@@ -19,7 +19,7 @@ interface Transaction {
     amount: number;
     details: string;
     date: string;
-    status: 'Completed' | 'Pending';
+    status: 'Completed' | 'Processing' | 'Failed';
 }
 
 interface Bet {
@@ -47,8 +47,6 @@ interface AuthContextType {
     login: (username: string) => void;
     logout: () => void;
     updateBalance: (newBalance: number) => void;
-    addTransaction: (transaction: Omit<Transaction, 'id' | 'date'>) => void;
-    addBet: (bet: Omit<Bet, 'id'|'date'>) => void;
     useFreePlay: (game: 'toss' | 'spin') => void;
 }
 
@@ -59,6 +57,9 @@ interface AppContextType {
     toggleMute: () => void;
     playSound: (name: SoundName) => void;
     showToast: (message: string, type: 'success' | 'error') => void;
+    addTransaction: (transaction: Omit<Transaction, 'id' | 'date'>) => Promise<Transaction>;
+    updateTransaction: (updatedTransaction: Transaction) => void;
+    addBet: (bet: Omit<Bet, 'id'|'date'>) => void;
 }
 
 
@@ -143,38 +144,7 @@ const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => 
         }
     };
 
-    const addTransaction = (transaction: Omit<Transaction, 'id' | 'date'>) => {
-        if (!user) return;
-        // This logic would be handled by the backend. We simulate it here.
-        const allTransactions = JSON.parse(localStorage.getItem(`tosssim_transactions_${user.username}`) || '[]');
-        const newTransaction: Transaction = {
-            ...transaction,
-            id: Date.now(),
-            date: new Date().toLocaleString()
-        };
-        const updatedTransactions = [newTransaction, ...allTransactions];
-        localStorage.setItem(`tosssim_transactions_${user.username}`, JSON.stringify(updatedTransactions));
-        // We need to trigger a re-render in the AppProvider, so this should ideally be there.
-        // For now, we'll just log it.
-        console.log("New transaction added. State refresh needed to see it in history.");
-    };
-
-    const addBet = (bet: Omit<Bet, 'id'|'date'>) => {
-        if (!user) return;
-        // This logic would be handled by the backend.
-        const allBets = JSON.parse(localStorage.getItem(`tosssim_bets_${user.username}`) || '[]');
-        const newBet: Bet = {
-            ...bet,
-            id: Date.now(),
-            date: new Date().toLocaleString()
-        };
-        const updatedBets = [newBet, ...allBets];
-        localStorage.setItem(`tosssim_bets_${user.username}`, JSON.stringify(updatedBets));
-        console.log("New bet added. State refresh needed to see it in history.");
-    };
-
-
-    const value = { isAuthenticated, user, login, logout, updateBalance, addTransaction, addBet, useFreePlay };
+    const value = { isAuthenticated, user, login, logout, updateBalance, useFreePlay };
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
@@ -187,7 +157,6 @@ const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const sounds = useRef<Record<string, HTMLAudioElement>>({});
 
     useEffect(() => {
-        // Load data when user logs in
         if (user) {
             setTransactions(JSON.parse(localStorage.getItem(`tosssim_transactions_${user.username}`) || '[]'));
             setBets(JSON.parse(localStorage.getItem(`tosssim_bets_${user.username}`) || '[]'));
@@ -217,7 +186,37 @@ const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         }, 3500);
     };
 
-    const value = { transactions, bets, isMuted, toggleMute, playSound, showToast };
+    const addTransaction = async (transaction: Omit<Transaction, 'id' | 'date'>): Promise<Transaction> => {
+        if (!user) return Promise.reject("No user");
+        const newTransaction: Transaction = { ...transaction, id: Date.now(), date: new Date().toLocaleString() };
+        setTransactions(prev => {
+            const updated = [newTransaction, ...prev];
+            localStorage.setItem(`tosssim_transactions_${user.username}`, JSON.stringify(updated));
+            return updated;
+        });
+        return newTransaction;
+    };
+
+    const updateTransaction = (updatedTransaction: Transaction) => {
+        if (!user) return;
+        setTransactions(prev => {
+            const updated = prev.map(tx => tx.id === updatedTransaction.id ? updatedTransaction : tx);
+            localStorage.setItem(`tosssim_transactions_${user.username}`, JSON.stringify(updated));
+            return updated;
+        });
+    };
+
+    const addBet = (bet: Omit<Bet, 'id'|'date'>) => {
+        if (!user) return;
+        const newBet: Bet = { ...bet, id: Date.now(), date: new Date().toLocaleString() };
+        setBets(prev => {
+            const updated = [newBet, ...prev];
+            localStorage.setItem(`tosssim_bets_${user.username}`, JSON.stringify(updated));
+            return updated;
+        });
+    };
+
+    const value = { transactions, bets, isMuted, toggleMute, playSound, showToast, addTransaction, updateTransaction, addBet };
 
     return (
         <AppContext.Provider value={value}>
@@ -374,25 +373,22 @@ const Referrals = () => {
 };
 
 const Wallet = () => {
-    const { user, updateBalance, addTransaction } = useAuth();
-    const { showToast, playSound } = useAppContext();
-    const { transactions, bets } = useAppContext();
+    const { user, updateBalance } = useAuth();
+    const { showToast, playSound, transactions, bets, addTransaction, updateTransaction } = useAppContext();
     
     const [withdrawAmount, setWithdrawAmount] = useState('');
     const [withdrawDetails, setWithdrawDetails] = useState('');
+    const [isProcessing, setIsProcessing] = useState(false);
 
     const handleAddFunds = (amount: number) => {
-        // TODO: Replace with payment gateway integration and API call
         playSound('win');
         const newBalance = (user?.balance || 0) + amount;
         updateBalance(newBalance);
         addTransaction({type: 'Deposit', amount, details: 'Added to wallet', status: 'Completed'});
         showToast(`₹${amount.toFixed(2)} added to your balance!`, 'success');
-        // Manually trigger refresh because state is in two different providers
-        window.location.reload();
     };
     
-    const handleWithdraw = (e: React.FormEvent) => {
+    const handleWithdraw = async (e: React.FormEvent) => {
         e.preventDefault();
         const amount = parseFloat(withdrawAmount);
         if (!user || isNaN(amount) || amount <= 0) { showToast('Please enter a valid amount.', 'error'); return; }
@@ -401,15 +397,30 @@ const Wallet = () => {
         if (amount > user.balance) { showToast('Insufficient balance.', 'error'); return; }
         if (!withdrawDetails.trim()) { showToast('Please enter your UPI ID.', 'error'); return; }
         
-        // TODO: Replace with API call to /api/withdraw
-        const newBalance = user.balance - amount;
-        updateBalance(newBalance);
-        addTransaction({type: 'Withdrawal', amount, details: `To ${withdrawDetails}`, status: 'Pending'});
-        showToast('Withdrawal request submitted!', 'success');
-        playSound('win');
-        setWithdrawAmount('');
-        setWithdrawDetails('');
-        window.location.reload();
+        setIsProcessing(true);
+        playSound('click');
+        showToast('Submitting withdrawal request...', 'success');
+
+        const pendingTx = await addTransaction({type: 'Withdrawal', amount, details: `To ${withdrawDetails}`, status: 'Processing'});
+        
+        // Simulate backend processing
+        setTimeout(() => {
+            const isSuccess = Math.random() > 0.2; // 80% success rate
+            if (isSuccess) {
+                const newBalance = user.balance - amount;
+                updateBalance(newBalance);
+                updateTransaction({ ...pendingTx, status: 'Completed' });
+                showToast('Withdrawal successful!', 'success');
+                playSound('win');
+            } else {
+                updateTransaction({ ...pendingTx, status: 'Failed' });
+                showToast('Withdrawal failed. Please check details.', 'error');
+                playSound('lose');
+            }
+            setIsProcessing(false);
+            setWithdrawAmount('');
+            setWithdrawDetails('');
+        }, 3500);
     };
 
     return (
@@ -437,12 +448,12 @@ const Wallet = () => {
                 <form onSubmit={handleWithdraw}>
                     <p>Withdraw to your bank via UPI (Min ₹1, Max ₹5).</p>
                     <div className="bet-input">
-                        <input type="number" placeholder="Amount (₹)" value={withdrawAmount} onChange={(e) => setWithdrawAmount(e.target.value)} min="1" max="5" step="0.01" required />
+                        <input type="number" placeholder="Amount (₹)" value={withdrawAmount} onChange={(e) => setWithdrawAmount(e.target.value)} min="1" max="5" step="0.01" required disabled={isProcessing} />
                     </div>
                     <div className="bet-input">
-                        <input type="text" placeholder="Enter your UPI ID" value={withdrawDetails} onChange={(e) => setWithdrawDetails(e.target.value)} required />
+                        <input type="text" placeholder="Enter your UPI ID" value={withdrawDetails} onChange={(e) => setWithdrawDetails(e.target.value)} required disabled={isProcessing} />
                     </div>
-                    <button type="submit" className="btn btn-primary">Request Withdrawal</button>
+                    <button type="submit" className="btn btn-primary" disabled={isProcessing}>{isProcessing ? 'Processing...' : 'Request Withdrawal'}</button>
                 </form>
             </div>
             
@@ -459,7 +470,7 @@ const Wallet = () => {
                 <h3>Transaction History</h3>
                 <div className="history-list">
                     {transactions.length > 0 ? (
-                        <ul> {transactions.map(tx => ( <li key={tx.id}> <div className="tx-info"> <strong>{tx.type}</strong> <span>{tx.date}</span> </div> <div className={`tx-amount ${tx.type.toLowerCase()}`}> <strong>{tx.type === 'Deposit' ? `+₹${tx.amount.toFixed(2)}` : `-₹${tx.amount.toFixed(2)}`}</strong> <span>{tx.status}</span> </div> </li> ))} </ul>
+                        <ul> {transactions.map(tx => ( <li key={tx.id}> <div className="tx-info"> <strong>{tx.type}</strong> <span>{tx.date}</span> </div> <div className={`tx-amount ${tx.type.toLowerCase()} ${tx.status.toLowerCase()}`}> <strong>{tx.type === 'Deposit' ? `+₹${tx.amount.toFixed(2)}` : `-₹${tx.amount.toFixed(2)}`}</strong> <span className={`status ${tx.status.toLowerCase()}`}>{tx.status}</span> </div> </li> ))} </ul>
                     ) : ( <p>No transactions yet.</p> )}
                 </div>
             </div>
@@ -554,8 +565,8 @@ const CoinShower = () => {
 };
 
 const TossGame = () => {
-    const { user, updateBalance, addBet, useFreePlay } = useAuth();
-    const { playSound, showToast } = useAppContext();
+    const { user, updateBalance, useFreePlay } = useAuth();
+    const { playSound, showToast, addBet } = useAppContext();
     const [bet, setBet] = useState('');
     const [choice, setChoice] = useState<'heads' | 'tails' | null>(null);
     const [isFlipping, setIsFlipping] = useState(false);

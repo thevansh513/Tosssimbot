@@ -1,4 +1,5 @@
 
+
 :root {
     --bg-color: #0a0f23;
     --surface-color: #151a3a;
@@ -509,16 +510,29 @@ main {
     text-align: right;
     font-weight: 600;
 }
+
 .tx-amount.win strong, .tx-amount.deposit strong {
     color: var(--success-color);
 }
-.tx-amount.loss strong, .tx-amount.withdrawal strong {
+.tx-amount.loss strong {
     color: var(--danger-color);
 }
-.tx-amount span {
-    font-size: 0.8rem;
+.tx-amount.withdrawal.completed strong {
+    color: var(--danger-color);
+}
+.tx-amount.withdrawal:not(.completed) strong {
     color: var(--text-color-muted);
 }
+
+.tx-amount span.status {
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.tx-amount span.status.completed { color: var(--success-color); }
+.tx-amount span.status.processing { color: var(--primary-color); }
+.tx-amount span.status.failed { color: var(--danger-color); }
 
 
 /* Referrals Page */
