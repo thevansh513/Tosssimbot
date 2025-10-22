@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Dashboard - TossSim</title>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <header>
+        <div class="container">
+            <a href="/" class="logo-link"><h1 class="logo">🎯 TossSim</h1></a>
+            <div class="header-controls">
+                <div class="balance">
+                    💰 Balance: <span class="coin-balance">...</span>
+                </div>
+                <button id="sound-toggle" class="sound-toggle">🔊</button>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <div class="container page-container">
+            <h2>Choose Your Game</h2>
+            <div class="game-selection">
+                <a href="/game/toss.html" class="card game-card">
+                    <h3>Toss & Earn</h3>
+                    <p>Flip a coin. Double or nothing!</p>
+                </a>
+                <a href="/game/spin.html" class="card game-card">
+                    <h3>Spin & Win</h3>
+                    <p>Spin the wheel for big prizes!</p>
+                </a>
+            </div>
+
+            <div class="card leaderboard-container">
+                <h3>🏆 Top 5 Local Players</h3>
+                <ol class="leaderboard-list">
+                    <li><span>Player123</span><span>15,450</span></li>
+                    <li><span>CoinMaster</span><span>12,800</span></li>
+                    <li><span>LuckySpinner</span><span>11,230</span></li>
+                    <li><span>HighRoller</span><span>9,900</span></li>
+                    <li><span>BetKing</span><span>8,750</span></li>
+                </ol>
+            </div>
+
+             <div id="bonus-container"></div>
+        </div>
+    </main>
+
+    <!-- BOTTOM AD -->
+    <div class="ad-banner bottom-ad">
+        <script async="async" data-cfasync="false" src="//pl27902574.effectivegatecpm.com/a7a7028cc65b952d8920c62111462a33/invoke.js"></script>
+        <div id="container-a7a7028cc65b952d8920c62111462a33"></div>
+    </div>
+
+    <div id="toast-container"></div>
+    <script src="/assets/js/main.js"></script>
+</body>
+</html>
