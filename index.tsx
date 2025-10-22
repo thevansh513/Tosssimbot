@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext, createContext, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Routes, Route, Link, Outlet, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, Outlet } from 'react-router-dom';
 
 // --- TYPE DEFINITIONS ---
 type SoundName = 'flip' | 'spin' | 'win' | 'lose' | 'click';
@@ -13,13 +13,47 @@ interface ToastMessage {
 
 interface AppContextType {
     coins: number;
+    stakedCoins: number;
     addCoins: (amount: number) => void;
     subtractCoins: (amount: number) => void;
+    stakeCoins: (amount: number) => void;
+    unstakeCoins: (amount: number) => void;
+    claimInterest: () => { success: boolean, message: string };
+    lastInterestClaim: string | null;
     isMuted: boolean;
     toggleMute: () => void;
     playSound: (name: SoundName) => void;
     showToast: (message: string, type: 'success' | 'error') => void;
 }
+
+// --- ICONS ---
+const HomeIcon = ({ isActive }: { isActive: boolean }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill={isActive ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+        <polyline points="9 22 9 12 15 12 15 22"></polyline>
+    </svg>
+);
+const TossIcon = ({ isActive }: { isActive: boolean }) => (
+     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill={isActive ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 2a10 10 0 0 0-10 10c0 4.42 2.87 8.17 6.84 9.5.6.11.82-.26.82-.57v-1.97c-2.78.6-3.37-1.34-3.37-1.34-.55-1.39-1.34-1.76-1.34-1.76-1.09-.74.08-.73.08-.73 1.2.09 1.83 1.24 1.83 1.24 1.07 1.84 2.81 1.31 3.5 1 .1-.78.42-1.31.76-1.61-2.67-.3-5.46-1.33-5.46-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.12-3.18 0 0 1-.32 3.3 1.23.95-.26 1.98-.4 3-.4s2.05.13 3 .4c2.28-1.55 3.28-1.23 3.28-1.23.66 1.66.24 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.8 5.62-5.48 5.92.43.37.81 1.1.81 2.22v3.29c0 .31.22.69.82.57A10 10 0 0 0 22 12c0-5.52-4.48-10-10-10z" />
+    </svg>
+);
+const SpinIcon = ({ isActive }: { isActive: boolean }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill={isActive ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+       <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4l2-2v4l-2-2m-18 6h18v7H3z"/><path d="M12 12v7"/><path d="M6 12v7"/><path d="M18 12v7"/>
+    </svg>
+);
+const WalletIcon = ({ isActive }: { isActive: boolean }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill={isActive ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20 12V8H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h12v4l4 2-4 2zm-8 4H4a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2z"/>
+    </svg>
+);
+const ReferIcon = ({ isActive }: { isActive: boolean }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill={isActive ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/><path d="M12 2v2m-3 1.5V6m6 0v-1.5"/>
+    </svg>
+);
 
 // --- SOUNDS ---
 const soundFiles: Record<SoundName, string> = {
@@ -41,6 +75,8 @@ const useAppContext = () => {
 
 const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [coins, setCoins] = useState<number>(() => parseInt(localStorage.getItem('tosssim_coins') || '1000', 10));
+    const [stakedCoins, setStakedCoins] = useState<number>(() => parseInt(localStorage.getItem('tosssim_staked') || '0', 10));
+    const [lastInterestClaim, setLastInterestClaim] = useState<string | null>(() => localStorage.getItem('tosssim_last_claim'));
     const [isMuted, setIsMuted] = useState<boolean>(() => localStorage.getItem('tosssim_muted') === 'true');
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
     const sounds = useRef<Record<string, HTMLAudioElement>>({});
@@ -52,18 +88,44 @@ const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         });
     }, []);
     
-    useEffect(() => {
-        localStorage.setItem('tosssim_coins', coins.toString());
-    }, [coins]);
-    
-    useEffect(() => {
-        localStorage.setItem('tosssim_muted', isMuted.toString());
-    }, [isMuted]);
+    useEffect(() => { localStorage.setItem('tosssim_coins', coins.toString()); }, [coins]);
+    useEffect(() => { localStorage.setItem('tosssim_staked', stakedCoins.toString()); }, [stakedCoins]);
+    useEffect(() => { lastInterestClaim ? localStorage.setItem('tosssim_last_claim', lastInterestClaim) : localStorage.removeItem('tosssim_last_claim'); }, [lastInterestClaim]);
+    useEffect(() => { localStorage.setItem('tosssim_muted', isMuted.toString()); }, [isMuted]);
 
     const addCoins = (amount: number) => setCoins(c => c + amount);
     const subtractCoins = (amount: number) => setCoins(c => c - amount);
     const toggleMute = () => setIsMuted(m => !m);
     
+    const stakeCoins = (amount: number) => {
+        if (amount > 0 && coins >= amount) {
+            setCoins(c => c - amount);
+            setStakedCoins(s => s + amount);
+        }
+    };
+    
+    const unstakeCoins = (amount: number) => {
+        if (amount > 0 && stakedCoins >= amount) {
+            setStakedCoins(s => s - amount);
+            setCoins(c => c + amount);
+        }
+    };
+
+    const claimInterest = () => {
+        const today = new Date().toISOString().split('T')[0];
+        if (lastInterestClaim === today) {
+            return { success: false, message: 'Interest already claimed today.' };
+        }
+        if (stakedCoins <= 0) {
+            return { success: false, message: 'Stake some coins to earn interest.' };
+        }
+        
+        const interest = Math.floor(stakedCoins * 0.78);
+        setStakedCoins(s => s + interest);
+        setLastInterestClaim(today);
+        return { success: true, message: `You earned ${interest.toLocaleString()} coins in interest!` };
+    };
+
     const playSound = (name: SoundName) => {
         if (!isMuted && sounds.current[name]) {
             sounds.current[name].currentTime = 0;
@@ -79,7 +141,7 @@ const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         }, 3500);
     };
 
-    const value = { coins, addCoins, subtractCoins, isMuted, toggleMute, playSound, showToast };
+    const value = { coins, stakedCoins, addCoins, subtractCoins, isMuted, toggleMute, playSound, showToast, stakeCoins, unstakeCoins, claimInterest, lastInterestClaim };
 
     return (
         <AppContext.Provider value={value}>
@@ -90,7 +152,6 @@ const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 };
 
 // --- UI COMPONENTS ---
-
 const Toast: React.FC<{ message: ToastMessage, onClose: () => void }> = ({ message, onClose }) => {
     const [show, setShow] = useState(false);
     useEffect(() => {
@@ -111,9 +172,7 @@ const Toast: React.FC<{ message: ToastMessage, onClose: () => void }> = ({ messa
 const ToastContainer: React.FC<{ toasts: ToastMessage[] }> = ({ toasts }) => {
     const [toastList, setToastList] = useState<ToastMessage[]>([]);
 
-    useEffect(() => {
-        setToastList(toasts);
-    }, [toasts]);
+    useEffect(() => { setToastList(toasts); }, [toasts]);
 
     const handleClose = (id: number) => {
         setToastList(currentToasts => currentToasts.filter(toast => toast.id !== id));
@@ -129,137 +188,222 @@ const ToastContainer: React.FC<{ toasts: ToastMessage[] }> = ({ toasts }) => {
 };
 
 const Header = () => {
-    const { coins, isMuted, toggleMute } = useAppContext();
+    const { coins, isMuted, toggleMute, playSound } = useAppContext();
+    const handleToggle = () => {
+        toggleMute();
+        playSound('click');
+    }
     return (
         <header>
             <div className="container">
-                <Link to="/" className="logo-link"><h1 className="logo">🎯 TossSim</h1></Link>
+                <div className="logo-container">
+                     <span role="img" aria-label="target emoji">🎯</span>
+                     <h1 className="logo">TossSim</h1>
+                </div>
                 <div className="header-controls">
-                    <div className="balance">💰 Balance: <span className="coin-balance">{coins.toLocaleString()}</span></div>
-                    <button id="sound-toggle" className="sound-toggle" onClick={toggleMute}>{isMuted ? '🔇' : '🔊'}</button>
+                    <div className="balance">
+                        <span role="img" aria-label="coin emoji">💰</span>
+                        <span className="coin-balance">{coins.toLocaleString()}</span>
+                    </div>
+                    <button id="sound-toggle" className="sound-toggle" onClick={handleToggle} aria-label="Toggle Sound">
+                        {isMuted ? '🔇' : '🔊'}
+                    </button>
                 </div>
             </div>
         </header>
     );
 };
 
-const AdBanner = ({ type }: { type: 'top' | 'bottom' }) => {
-    const adRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        if (!adRef.current) return;
-        
-        adRef.current.innerHTML = ''; // Clear previous ad
-        let script;
-        if (type === 'top') {
-            script = document.createElement('script');
-            script.type = 'text/javascript';
-            // Set config on window for the external script to find
-            (window as any).atOptions = {
-                'key': 'f71f4fbbfb3d6ebf34b5a498606309c2',
-                'format': 'iframe',
-                'height': 50,
-                'width': 320,
-                'params': {}
-            };
-            script.src = "//www.highperformanceformat.com/f71f4fbbfb3d6ebf34b5a498606309c2/invoke.js";
-            adRef.current.appendChild(script);
-        } else {
-            const container = document.createElement('div');
-            container.id = 'container-a7a7028cc65b952d8920c62111462a33';
-            adRef.current.appendChild(container);
-            
-            script = document.createElement('script');
-            script.async = true;
-            script.setAttribute('data-cfasync', 'false');
-            script.src = "//pl27902574.effectivegatecpm.com/a7a7028cc65b952d8920c62111462a33/invoke.js";
-            adRef.current.appendChild(script);
-        }
-
-        return () => {
-             if (adRef.current) adRef.current.innerHTML = '';
-        }
-    }, [type]);
-
-    return <div className={`ad-banner ${type}-ad`} ref={adRef} />;
-};
-
+const BottomNav = () => {
+    const { playSound } = useAppContext();
+    const click = () => playSound('click');
+    return (
+        <nav className="bottom-nav">
+             <NavLink to="/" className="nav-item" onClick={click}>
+                {({isActive}) => (<><HomeIcon isActive={isActive} /><span>Home</span></>)}
+            </NavLink>
+            <NavLink to="/game/toss" className="nav-item" onClick={click}>
+                 {({isActive}) => (<><TossIcon isActive={isActive} /><span>Toss</span></>)}
+            </NavLink>
+            <NavLink to="/game/spin" className="nav-item" onClick={click}>
+                 {({isActive}) => (<><SpinIcon isActive={isActive} /><span>Spin</span></>)}
+            </NavLink>
+             <NavLink to="/wallet" className="nav-item" onClick={click}>
+                 {({isActive}) => (<><WalletIcon isActive={isActive} /><span>Wallet</span></>)}
+            </NavLink>
+            <NavLink to="/refer" className="nav-item" onClick={click}>
+                 {({isActive}) => (<><ReferIcon isActive={isActive} /><span>Refer</span></>)}
+            </NavLink>
+        </nav>
+    );
+}
 
 const Layout = () => {
     return (
         <>
             <Header />
-            <AdBanner type="top" />
             <main>
                 <Outlet />
             </main>
-            <AdBanner type="bottom" />
+            <BottomNav />
         </>
     );
 };
 
 // --- PAGE COMPONENTS ---
-
-const Home = () => (
-    <div className="container hero">
-        <h2>Welcome to TossSim!</h2>
-        <p>Spin & Toss to earn virtual coins! Are you feeling lucky?</p>
-        <div className="button-group">
-            <Link to="/game" className="btn btn-primary">Play Now</Link>
-            <Link to="/download" className="btn btn-secondary">Download App</Link>
+const Home = () => {
+    const { playSound } = useAppContext();
+    return (
+        <div className="container hero">
+            <h2>Welcome to TossSim!</h2>
+            <p>The ultimate virtual coin game. Are you feeling lucky?</p>
+            <img src="/assets/images/treasure.png" alt="Treasure chest full of coins" className="hero-image"/>
+            <div className="button-group">
+                <NavLink to="/game/toss" className="btn btn-primary" onClick={() => playSound('click')}>
+                    Play Toss
+                </NavLink>
+                 <NavLink to="/game/spin" className="btn btn-secondary" onClick={() => playSound('click')}>
+                    Play Spin
+                </NavLink>
+            </div>
         </div>
-    </div>
-);
+    );
+};
 
-const Download = () => (
-    <div className="container page-container">
-        <div className="card">
-            <h2>Get the TossSim App 📲</h2>
-            <p>Enjoy TossSim on your Android device for the best experience.</p>
-            <a href="/download/toss.apk" className="btn btn-primary" download>Download Now (APK)</a>
-        </div>
-        <Link to="/" className="back-link">← Back to Home</Link>
-    </div>
-);
-
-const GameDashboard = () => {
-    const { coins, addCoins, playSound, showToast } = useAppContext();
-    const handleBonusClaim = () => {
-        addCoins(500);
-        showToast('You received your daily bonus!', 'success');
-        playSound('win');
-    };
-
+const Refer = () => {
+    const { playSound } = useAppContext();
     return (
         <div className="container page-container">
-            <h2>Choose Your Game</h2>
-            <div className="game-selection">
-                <Link to="/game/toss" className="card game-card">
-                    <h3>Toss & Earn</h3>
-                    <p>Flip a coin. Double or nothing!</p>
-                </Link>
-                <Link to="/game/spin" className="card game-card">
-                    <h3>Spin & Win</h3>
-                    <p>Spin the wheel for big prizes!</p>
-                </Link>
+            <div className="card">
+                <h2>Refer & Download 📲</h2>
+                <p>Share the fun! Download the TossSim Android app and share it with your friends for the best experience, offline play, and more features!</p>
+                <a href="/download/toss.apk" className="btn btn-primary" download onClick={() => playSound('click')}>Download APK Now</a>
             </div>
-            <div className="card leaderboard-container">
-                <h3>🏆 Top 5 Local Players</h3>
-                <ol className="leaderboard-list">
-                    <li><span>Player123</span><span>15,450</span></li>
-                    <li><span>CoinMaster</span><span>12,800</span></li>
-                    <li><span>LuckySpinner</span><span>11,230</span></li>
-                    <li><span>HighRoller</span><span>9,900</span></li>
-                    <li><span>BetKing</span><span>8,750</span></li>
-                </ol>
-            </div>
-            <div id="bonus-container">
-                {coins <= 0 && (
-                    <button className="btn btn-secondary" onClick={handleBonusClaim}>
-                        😭 Claim Daily Bonus (+500)
+        </div>
+    );
+};
+
+const Wallet = () => {
+    const { coins, stakedCoins, stakeCoins, unstakeCoins, claimInterest, showToast, playSound, lastInterestClaim } = useAppContext();
+    const [stakeAmount, setStakeAmount] = useState('');
+    const [unstakeAmount, setUnstakeAmount] = useState('');
+
+    const handleStake = (e: React.FormEvent) => {
+        e.preventDefault();
+        const amount = parseInt(stakeAmount, 10);
+        if (isNaN(amount) || amount <= 0) {
+            showToast('Please enter a valid amount.', 'error');
+            return;
+        }
+        if (amount > coins) {
+            showToast('Not enough coins to stake.', 'error');
+            return;
+        }
+        stakeCoins(amount);
+        showToast(`${amount.toLocaleString()} coins staked!`, 'success');
+        playSound('win');
+        setStakeAmount('');
+    };
+
+    const handleUnstake = (e: React.FormEvent) => {
+        e.preventDefault();
+        const amount = parseInt(unstakeAmount, 10);
+        if (isNaN(amount) || amount <= 0) {
+            showToast('Please enter a valid amount.', 'error');
+            return;
+        }
+        if (amount > stakedCoins) {
+            showToast('Not enough staked coins.', 'error');
+            return;
+        }
+        unstakeCoins(amount);
+        showToast(`${amount.toLocaleString()} coins withdrawn.`, 'success');
+        playSound('click');
+        setUnstakeAmount('');
+    };
+
+    const handleClaim = () => {
+        const result = claimInterest();
+        if (result.success) {
+            showToast(result.message, 'success');
+            playSound('win');
+        } else {
+            showToast(result.message, 'error');
+        }
+    };
+    
+    const today = new Date().toISOString().split('T')[0];
+    const canClaim = lastInterestClaim !== today;
+
+    return (
+        <div className="container page-container wallet-container">
+            <h2>My Wallet</h2>
+            <div className="card wallet-balance-card">
+                <h3>Staked Balance</h3>
+                <p className="wallet-amount">{stakedCoins.toLocaleString()} 💰</p>
+                <div className="interest-info">
+                    <p>Earn <strong>78%</strong> daily interest!</p>
+                    <button className="btn btn-secondary" onClick={handleClaim} disabled={!canClaim || stakedCoins <= 0}>
+                        {canClaim ? 'Claim Interest' : 'Claimed Today'}
                     </button>
-                )}
+                </div>
             </div>
+
+            <div className="stake-unstake-forms">
+                <form className="card" onSubmit={handleStake}>
+                    <h3>Stake Coins</h3>
+                    <p>Your balance: {coins.toLocaleString()}</p>
+                    <div className="bet-input">
+                         <input
+                            type="number"
+                            placeholder="Amount to stake"
+                            value={stakeAmount}
+                            onChange={(e) => setStakeAmount(e.target.value)}
+                            min="1"
+                            aria-label="Stake amount"
+                        />
+                    </div>
+                    <button type="submit" className="btn btn-primary">Stake</button>
+                </form>
+
+                <form className="card" onSubmit={handleUnstake}>
+                    <h3>Withdraw Coins</h3>
+                    <p>Staked: {stakedCoins.toLocaleString()}</p>
+                     <div className="bet-input">
+                        <input
+                            type="number"
+                            placeholder="Amount to withdraw"
+                            value={unstakeAmount}
+                            onChange={(e) => setUnstakeAmount(e.target.value)}
+                            min="1"
+                             aria-label="Unstake amount"
+                        />
+                    </div>
+                    <button type="submit" className="btn">Withdraw</button>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+
+const CoinShower = () => {
+    const coins = Array.from({ length: 30 });
+    return (
+        <div className="coin-shower-container" aria-hidden="true">
+            {coins.map((_, i) => (
+                <div
+                    key={i}
+                    className="falling-coin"
+                    style={{
+                        left: `${Math.random() * 100}vw`,
+                        animationDelay: `${Math.random() * 1.5}s`,
+                        animationDuration: `${1.5 + Math.random()}s`
+                    }}
+                >
+                    💰
+                </div>
+            ))}
         </div>
     );
 };
@@ -269,9 +413,10 @@ const TossGame = () => {
     const [bet, setBet] = useState('');
     const [choice, setChoice] = useState<'heads' | 'tails' | null>(null);
     const [isFlipping, setIsFlipping] = useState(false);
-    const [resultText, setResultText] = useState('');
+    const [resultText, setResultText] = useState('Place your bet to start!');
     const [flipClass, setFlipClass] = useState('');
     const [glow, setGlow] = useState(false);
+    const [showShower, setShowShower] = useState(false);
     const coinRef = useRef<HTMLDivElement>(null);
 
     const handleToss = () => {
@@ -297,6 +442,12 @@ const TossGame = () => {
             setFlipClass(result === 'heads' ? 'flip-heads' : 'flip-tails');
         }, 100);
     };
+    
+    const handleChoiceClick = (selectedChoice: 'heads' | 'tails') => {
+        if (isFlipping) return;
+        setChoice(selectedChoice);
+        playSound('click');
+    };
 
     useEffect(() => {
         const coinEl = coinRef.current;
@@ -316,6 +467,8 @@ const TossGame = () => {
                 showToast(`You won ${winnings} coins!`, 'success');
                 playSound('win');
                 setGlow(true);
+                setShowShower(true);
+                setTimeout(() => setShowShower(false), 3000);
             } else {
                 subtractCoins(betAmount);
                 setResultText(`It's ${result}. You lost ${betAmount} coins.`);
@@ -336,6 +489,7 @@ const TossGame = () => {
 
     return (
         <div className="container page-container">
+            {showShower && <CoinShower />}
             <h2>Toss & Earn</h2>
             <div className={`coin-container ${glow ? 'win-glow' : ''}`}>
                 <div id="coin" ref={coinRef} className={flipClass}>
@@ -350,21 +504,44 @@ const TossGame = () => {
                     <input 
                         type="number" 
                         id="bet-amount" 
-                        placeholder="Enter bet" 
+                        placeholder="Enter your bet" 
                         min="1" 
                         value={bet}
                         onChange={(e) => setBet(e.target.value)}
                         disabled={isFlipping}
+                        aria-label="Bet Amount"
                     />
                 </div>
                 <p>Choose your side:</p>
                 <div className="choice-buttons">
-                    <button className={`btn choice-btn ${choice === 'heads' ? 'active' : ''}`} onClick={() => !isFlipping && setChoice('heads')}>Heads</button>
-                    <button className={`btn choice-btn ${choice === 'tails' ? 'active' : ''}`} onClick={() => !isFlipping && setChoice('tails')}>Tails</button>
+                    <button className={`btn choice-btn ${choice === 'heads' ? 'active' : ''}`} onClick={() => handleChoiceClick('heads')}>Heads</button>
+                    <button className={`btn choice-btn ${choice === 'tails' ? 'active' : ''}`} onClick={() => handleChoiceClick('tails')}>Tails</button>
                 </div>
-                <button id="toss-button" className="btn btn-primary" disabled={isTossDisabled} onClick={handleToss}>Toss Coin</button>
+                <button id="toss-button" className="btn btn-primary" disabled={isTossDisabled} onClick={handleToss}>
+                    {isFlipping ? 'Flipping...' : 'Toss Coin'}
+                </button>
             </div>
-            <Link to="/game" className="back-link">← Back to Games</Link>
+        </div>
+    );
+};
+
+const Confetti = () => {
+    const pieces = Array.from({ length: 50 });
+    const colors = ['#db7093', '#20b2aa', '#daa520', '#ff7f50', '#3cb371', '#4169e1', '#6a5acd'];
+    return (
+        <div className="confetti-container" aria-hidden="true">
+            {pieces.map((_, i) => (
+                <div
+                    key={i}
+                    className="confetti-piece"
+                    style={{
+                        left: `${Math.random() * 100}vw`,
+                        animationDelay: `${Math.random() * 1}s`,
+                        backgroundColor: colors[Math.floor(Math.random() * colors.length)],
+                        transform: `rotate(${Math.random() * 360}deg)`
+                    }}
+                ></div>
+            ))}
         </div>
     );
 };
@@ -372,10 +549,18 @@ const TossGame = () => {
 const SpinGame = () => {
     const { coins, addCoins, subtractCoins, playSound, showToast } = useAppContext();
     const [isSpinning, setIsSpinning] = useState(false);
-    const [resultText, setResultText] = useState('');
+    const [resultText, setResultText] = useState('Spin the wheel for big prizes!');
+    const [winningIndex, setWinningIndex] = useState<number | null>(null);
+    const [showConfetti, setShowConfetti] = useState(false);
     const wheelRef = useRef<HTMLDivElement>(null);
 
-    const sections = [500, 50, 100, 0, 250, 25, 150, 10];
+    const wheelData = [
+        { value: 500, color: '#db7093' }, { value: 50, color: '#20b2aa' },
+        { value: 100, color: '#daa520' }, { value: 0, color: '#ff340f' },
+        { value: 250, color: '#ff7f50' }, { value: 25, color: '#3cb371' },
+        { value: 150, color: '#4169e1' }, { value: 10, color: '#6a5acd' }
+    ];
+    const sections = wheelData.map(d => d.value);
     const sectionAngle = 360 / sections.length;
     const spinCost = 25;
 
@@ -387,6 +572,8 @@ const SpinGame = () => {
         }
 
         setIsSpinning(true);
+        setWinningIndex(null);
+        setShowConfetti(false);
         setResultText('');
         subtractCoins(spinCost);
         playSound('spin');
@@ -394,9 +581,20 @@ const SpinGame = () => {
         const wheel = wheelRef.current;
         if (!wheel) return;
 
+        wheel.style.transition = 'none';
+        
+        const st = window.getComputedStyle(wheel, null);
+        const tm = st.getPropertyValue("transform") || "none";
+        if (tm !== "none") {
+            const values = tm.split('(')[1].split(')')[0].split(',');
+            Math.round(Math.atan2(parseFloat(values[1]), parseFloat(values[0])) * (180/Math.PI));
+        }
+
         const randomSpins = Math.floor(Math.random() * 5) + 5;
         const randomStopAngle = Math.floor(Math.random() * 360);
         const totalRotation = (randomSpins * 360) + randomStopAngle;
+        
+        wheel.offsetHeight; 
 
         wheel.style.transition = 'transform 5s cubic-bezier(0.25, 0.1, 0.25, 1)';
         wheel.style.transform = `rotate(${totalRotation}deg)`;
@@ -407,24 +605,28 @@ const SpinGame = () => {
         if (!wheel) return;
 
         const handleSpinEnd = () => {
-            wheel.style.transition = 'none';
-
+            if (!isSpinning) return;
+            
             const st = window.getComputedStyle(wheel, null);
             const tm = st.getPropertyValue("transform");
             const values = tm.split('(')[1].split(')')[0].split(',');
             const angle = Math.round(Math.atan2(parseFloat(values[1]), parseFloat(values[0])) * (180/Math.PI));
             const actualRotation = (angle < 0 ? angle + 360 : angle);
             
-            wheel.style.transform = `rotate(${actualRotation}deg)`;
-
-            const winningIndex = Math.floor((360 - actualRotation) / sectionAngle) % sections.length;
-            const prize = sections[winningIndex];
+            const calculatedIndex = Math.floor((360 - actualRotation + (sectionAngle / 2)) % 360 / sectionAngle);
+            const prize = sections[calculatedIndex];
 
             if (prize > 0) {
                 setResultText(`You won ${prize} coins!`);
                 showToast(`You won ${prize} coins!`, 'success');
                 addCoins(prize);
                 playSound('win');
+                setWinningIndex(calculatedIndex);
+                setShowConfetti(true);
+                setTimeout(() => {
+                    setWinningIndex(null);
+                    setShowConfetti(false);
+                }, 4000);
             } else {
                 setResultText('Better luck next time!');
                 showToast('You won 0 coins.', 'error');
@@ -436,30 +638,33 @@ const SpinGame = () => {
 
         wheel.addEventListener('transitionend', handleSpinEnd);
         return () => wheel.removeEventListener('transitionend', handleSpinEnd);
-    }, [addCoins, playSound, showToast, subtractCoins]);
+    }, [addCoins, playSound, showToast, subtractCoins, isSpinning, sections, sectionAngle]);
 
     return (
         <div className="container page-container">
+            {showConfetti && <Confetti />}
             <h2>Spin & Win</h2>
             <p className="spin-cost">Cost: 25 Coins per spin</p>
             <div className="wheel-container">
                 <div className="wheel-pointer"></div>
                 <div id="wheel" className="wheel" ref={wheelRef}>
-                    <div className="wheel-section" style={{ '--i': 0, '--clr': '#db7093' } as React.CSSProperties}><span>500</span></div>
-                    <div className="wheel-section" style={{ '--i': 1, '--clr': '#20b2aa' } as React.CSSProperties}><span>50</span></div>
-                    <div className="wheel-section" style={{ '--i': 2, '--clr': '#daa520' } as React.CSSProperties}><span>100</span></div>
-                    <div className="wheel-section" style={{ '--i': 3, '--clr': '#ff340f' } as React.CSSProperties}><span>0</span></div>
-                    <div className="wheel-section" style={{ '--i': 4, '--clr': '#ff7f50' } as React.CSSProperties}><span>250</span></div>
-                    <div className="wheel-section" style={{ '--i': 5, '--clr': '#3cb371' } as React.CSSProperties}><span>25</span></div>
-                    <div className="wheel-section" style={{ '--i': 6, '--clr': '#4169e1' } as React.CSSProperties}><span>150</span></div>
-                    <div className="wheel-section" style={{ '--i': 7, '--clr': '#6a5acd' } as React.CSSProperties}><span>10</span></div>
+                    {wheelData.map((data, index) => (
+                        <div 
+                            key={index} 
+                            className={`wheel-section ${winningIndex === index ? 'winning' : ''}`} 
+                            style={{ '--i': index, '--clr': data.color } as React.CSSProperties}
+                        >
+                            <span>{data.value}</span>
+                        </div>
+                    ))}
                 </div>
             </div>
             <p id="spin-result" className="result-text">{resultText}</p>
             <div className="game-controls">
-                <button id="spin-button" className="btn btn-primary" onClick={startSpin} disabled={isSpinning}>Spin Wheel</button>
+                <button id="spin-button" className="btn btn-primary" onClick={startSpin} disabled={isSpinning}>
+                    {isSpinning ? 'Spinning...' : 'Spin Wheel'}
+                </button>
             </div>
-            <Link to="/game" className="back-link">← Back to Games</Link>
         </div>
     );
 };
@@ -471,9 +676,9 @@ const App = () => (
             <Routes>
                 <Route path="/" element={<Layout />}>
                     <Route index element={<Home />} />
-                    <Route path="download" element={<Download />} />
-                    <Route path="game" >
-                        <Route index element={<GameDashboard />} />
+                    <Route path="refer" element={<Refer />} />
+                    <Route path="wallet" element={<Wallet />} />
+                    <Route path="game">
                         <Route path="toss" element={<TossGame />} />
                         <Route path="spin" element={<SpinGame />} />
                     </Route>
