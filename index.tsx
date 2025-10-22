@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useContext, createContext, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route, NavLink, Outlet } from 'react-router-dom';
@@ -20,6 +21,8 @@ interface AppContextType {
     unstakeCoins: (amount: number) => void;
     claimInterest: () => { success: boolean, message: string };
     lastInterestClaim: string | null;
+    claimHourlyBonus: () => { success: boolean; message: string; };
+    lastHourlyClaim: number | null;
     isMuted: boolean;
     toggleMute: () => void;
     playSound: (name: SoundName) => void;
@@ -77,6 +80,10 @@ const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [coins, setCoins] = useState<number>(() => parseInt(localStorage.getItem('tosssim_coins') || '1000', 10));
     const [stakedCoins, setStakedCoins] = useState<number>(() => parseInt(localStorage.getItem('tosssim_staked') || '0', 10));
     const [lastInterestClaim, setLastInterestClaim] = useState<string | null>(() => localStorage.getItem('tosssim_last_claim'));
+    const [lastHourlyClaim, setLastHourlyClaim] = useState<number | null>(() => {
+        const storedTime = localStorage.getItem('tosssim_last_hourly_claim');
+        return storedTime ? parseInt(storedTime, 10) : null;
+    });
     const [isMuted, setIsMuted] = useState<boolean>(() => localStorage.getItem('tosssim_muted') === 'true');
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
     const sounds = useRef<Record<string, HTMLAudioElement>>({});
@@ -91,6 +98,7 @@ const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     useEffect(() => { localStorage.setItem('tosssim_coins', coins.toString()); }, [coins]);
     useEffect(() => { localStorage.setItem('tosssim_staked', stakedCoins.toString()); }, [stakedCoins]);
     useEffect(() => { lastInterestClaim ? localStorage.setItem('tosssim_last_claim', lastInterestClaim) : localStorage.removeItem('tosssim_last_claim'); }, [lastInterestClaim]);
+    useEffect(() => { lastHourlyClaim ? localStorage.setItem('tosssim_last_hourly_claim', lastHourlyClaim.toString()) : localStorage.removeItem('tosssim_last_hourly_claim'); }, [lastHourlyClaim]);
     useEffect(() => { localStorage.setItem('tosssim_muted', isMuted.toString()); }, [isMuted]);
 
     const addCoins = (amount: number) => setCoins(c => c + amount);
@@ -126,6 +134,17 @@ const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         return { success: true, message: `You earned ${interest.toLocaleString()} coins in interest!` };
     };
 
+    const claimHourlyBonus = () => {
+        const now = Date.now();
+        const oneHour = 60 * 60 * 1000;
+        if (lastHourlyClaim && (now - lastHourlyClaim < oneHour)) {
+             return { success: false, message: 'You can only claim this once per hour.' };
+        }
+        addCoins(1000);
+        setLastHourlyClaim(now);
+        return { success: true, message: 'You claimed 1,000 coins!' };
+    };
+
     const playSound = (name: SoundName) => {
         if (!isMuted && sounds.current[name]) {
             sounds.current[name].currentTime = 0;
@@ -141,7 +160,7 @@ const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         }, 3500);
     };
 
-    const value = { coins, stakedCoins, addCoins, subtractCoins, isMuted, toggleMute, playSound, showToast, stakeCoins, unstakeCoins, claimInterest, lastInterestClaim };
+    const value = { coins, stakedCoins, addCoins, subtractCoins, isMuted, toggleMute, playSound, showToast, stakeCoins, unstakeCoins, claimInterest, lastInterestClaim, claimHourlyBonus, lastHourlyClaim };
 
     return (
         <AppContext.Provider value={value}>
@@ -231,8 +250,8 @@ const BottomNav = () => {
              <NavLink to="/wallet" className="nav-item" onClick={click}>
                  {({isActive}) => (<><WalletIcon isActive={isActive} /><span>Wallet</span></>)}
             </NavLink>
-            <NavLink to="/refer" className="nav-item" onClick={click}>
-                 {({isActive}) => (<><ReferIcon isActive={isActive} /><span>Refer</span></>)}
+            <NavLink to="/referrals" className="nav-item" onClick={click}>
+                 {({isActive}) => (<><ReferIcon isActive={isActive} /><span>Referrals</span></>)}
             </NavLink>
         </nav>
     );
@@ -251,10 +270,65 @@ const Layout = () => {
 };
 
 // --- PAGE COMPONENTS ---
+const HourlyBonus = () => {
+    const { claimHourlyBonus, lastHourlyClaim, showToast, playSound } = useAppContext();
+    const ONE_HOUR = 60 * 60 * 1000;
+    const [timeLeft, setTimeLeft] = useState(0);
+
+    useEffect(() => {
+        const calculateTimeLeft = () => {
+            const now = Date.now();
+            if (!lastHourlyClaim) {
+                return 0;
+            }
+            const timeSinceClaim = now - lastHourlyClaim;
+            return timeSinceClaim < ONE_HOUR ? ONE_HOUR - timeSinceClaim : 0;
+        };
+
+        setTimeLeft(calculateTimeLeft());
+
+        const timer = setInterval(() => {
+            setTimeLeft(prevTime => (prevTime > 1000 ? prevTime - 1000 : 0));
+        }, 1000);
+
+        return () => clearInterval(timer);
+    }, [lastHourlyClaim, ONE_HOUR]);
+
+    const handleClaim = () => {
+        const result = claimHourlyBonus();
+        if (result.success) {
+            showToast(result.message, 'success');
+            playSound('win');
+        } else {
+            showToast(result.message, 'error');
+        }
+    };
+
+    const canClaim = timeLeft <= 0;
+    const minutes = Math.floor((timeLeft / 1000 / 60) % 60).toString().padStart(2, '0');
+    const seconds = Math.floor((timeLeft / 1000) % 60).toString().padStart(2, '0');
+
+    return (
+        <div className="card">
+            <h3>🎁 Hourly Reward</h3>
+            <p>Claim 1,000 free coins every hour!</p>
+            <button 
+                onClick={handleClaim} 
+                disabled={!canClaim} 
+                className="btn btn-secondary"
+                style={{marginTop: '1rem', width: '100%'}}
+            >
+                {canClaim ? 'Claim 1,000 Coins' : `Next claim in ${minutes}:${seconds}`}
+            </button>
+        </div>
+    );
+};
+
 const Home = () => {
     const { playSound } = useAppContext();
     return (
         <div className="container hero">
+            <AdBanner />
             <h2>Welcome to TossSim!</h2>
             <p>The ultimate virtual coin game. Are you feeling lucky?</p>
             <img src="/assets/images/treasure.png" alt="Treasure chest full of coins" className="hero-image"/>
@@ -266,18 +340,120 @@ const Home = () => {
                     Play Spin
                 </NavLink>
             </div>
+             <div style={{marginTop: '2rem', width: '100%'}}>
+                 <HourlyBonus />
+            </div>
         </div>
     );
 };
 
-const Refer = () => {
-    const { playSound } = useAppContext();
+const AdBanner = () => {
+    const adContainerRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const container = adContainerRef.current;
+        if (container && container.childElementCount === 0) {
+            const scriptOptions = document.createElement('script');
+            scriptOptions.type = 'text/javascript';
+            scriptOptions.innerHTML = `
+                atOptions = {
+                    'key' : 'f71f4fbbfb3d6ebf34b5a498606309c2',
+                    'format' : 'iframe',
+                    'height' : 50,
+                    'width' : 320,
+                    'params' : {}
+                };
+            `;
+            container.appendChild(scriptOptions);
+
+            const scriptInvoke = document.createElement('script');
+            scriptInvoke.type = 'text/javascript';
+            scriptInvoke.src = '//www.highperformanceformat.com/f71f4fbbfb3d6ebf34b5a498606309c2/invoke.js';
+            container.appendChild(scriptInvoke);
+        }
+    }, []);
+
+    return <div ref={adContainerRef} className="ad-banner-react" style={{ margin: '0 auto 1.5rem auto' }}></div>;
+};
+
+
+const Referrals = () => {
+    const { showToast, playSound } = useAppContext();
+    const [referralCode, setReferralCode] = useState('');
+
+    useEffect(() => {
+        let code = localStorage.getItem('tosssim_referral_code');
+        if (!code) {
+            code = 'TOSSSIM-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+            localStorage.setItem('tosssim_referral_code', code);
+        }
+        setReferralCode(code);
+    }, []);
+
+    const handleCopyCode = () => {
+        if (!navigator.clipboard) {
+            showToast('Clipboard not available on your browser.', 'error');
+            return;
+        }
+        navigator.clipboard.writeText(referralCode).then(() => {
+            showToast('Referral code copied!', 'success');
+            playSound('click');
+        }, () => {
+            showToast('Failed to copy code.', 'error');
+        });
+    };
+
+    const handleShare = async () => {
+        playSound('click');
+        const downloadPageUrl = `${window.location.origin}/download.html`;
+        const shareText = `I'm earning coins on TossSim! Use my code ${referralCode} to get a bonus when you sign up!`;
+
+        const shareData = {
+            title: 'Join me on TossSim!',
+            text: shareText,
+            url: downloadPageUrl,
+        };
+
+        if (navigator.share) {
+            try {
+                await navigator.share(shareData);
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    console.error("Share failed:", err);
+                    showToast('Could not share.', 'error');
+                }
+            }
+        } else {
+            navigator.clipboard.writeText(`${shareText} Download here: ${downloadPageUrl}`).then(() => {
+                showToast('Share message copied to clipboard!', 'success');
+            }, () => {
+                showToast('Sharing not supported, failed to copy.', 'error');
+            });
+        }
+    };
+    
     return (
         <div className="container page-container">
+            <AdBanner />
             <div className="card">
-                <h2>Refer & Download 📲</h2>
-                <p>Share the fun! Download the TossSim Android app and share it with your friends for the best experience, offline play, and more features!</p>
-                <a href="/download/toss.apk" className="btn btn-primary" download onClick={() => playSound('click')}>Download APK Now</a>
+                <h2>Invite Friends, Earn Coins! 💸</h2>
+                <p>Share your code. You and your friend will both get <strong>2,500 coins</strong> when they join!</p>
+                <div className="referral-code-box">
+                    <span>Your Code:</span>
+                    <strong className="referral-code">{referralCode}</strong>
+                </div>
+                <div className="button-group" style={{marginTop: '1.5rem'}}>
+                    <button onClick={handleCopyCode} className="btn">Copy Code</button>
+                    <button onClick={handleShare} className="btn btn-primary">Share Link</button>
+                </div>
+            </div>
+
+            <div className="card">
+                 <h2>How it works</h2>
+                 <ul className="how-it-works-list">
+                    <li>1. Share your unique referral link or code.</li>
+                    <li>2. Your friend downloads the app and enters your code.</li>
+                    <li>3. You both instantly receive 2,500 bonus coins!</li>
+                 </ul>
             </div>
         </div>
     );
@@ -337,6 +513,7 @@ const Wallet = () => {
 
     return (
         <div className="container page-container wallet-container">
+            <AdBanner />
             <h2>My Wallet</h2>
             <div className="card wallet-balance-card">
                 <h3>Staked Balance</h3>
@@ -388,10 +565,10 @@ const Wallet = () => {
 
 
 const CoinShower = () => {
-    const coins = Array.from({ length: 30 });
+    const coinsArray = Array.from({ length: 30 });
     return (
         <div className="coin-shower-container" aria-hidden="true">
-            {coins.map((_, i) => (
+            {coinsArray.map((_, i) => (
                 <div
                     key={i}
                     className="falling-coin"
@@ -489,6 +666,7 @@ const TossGame = () => {
 
     return (
         <div className="container page-container">
+            <AdBanner />
             {showShower && <CoinShower />}
             <h2>Toss & Earn</h2>
             <div className={`coin-container ${glow ? 'win-glow' : ''}`}>
@@ -642,6 +820,7 @@ const SpinGame = () => {
 
     return (
         <div className="container page-container">
+            <AdBanner />
             {showConfetti && <Confetti />}
             <h2>Spin & Win</h2>
             <p className="spin-cost">Cost: 25 Coins per spin</p>
@@ -676,7 +855,7 @@ const App = () => (
             <Routes>
                 <Route path="/" element={<Layout />}>
                     <Route index element={<Home />} />
-                    <Route path="refer" element={<Refer />} />
+                    <Route path="referrals" element={<Referrals />} />
                     <Route path="wallet" element={<Wallet />} />
                     <Route path="game">
                         <Route path="toss" element={<TossGame />} />
